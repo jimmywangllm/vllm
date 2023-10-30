@@ -1,8 +1,8 @@
 import argparse
 import json
 from typing import AsyncGenerator
-
 import time
+
 from flasgger import Swagger
 
 from fastapi import FastAPI, Request, Body
@@ -22,17 +22,11 @@ engine = None
 
 class Request_1(BaseModel):
     prompt: str
-    stream: bool
     
     class Config:
         schema_extra = {
             "example":{
-                "prompt": "<<SYS>> You are an assisante. Please answer the questions in less than 512 words <</SYS>> [INST] Who are you? [/INST]",
-                "stream": False,
-                "max_tokens": 512,
-                "top_p": 0.9,
-                "frequency_penalty": 0.0,
-                "use_beam_search": False
+                "prompt": "<<SYS>> You are an assisante. Please answer the questions in less than 512 words <</SYS>> [INST] Who are you? [/INST]   ---OR---   Read the following paragraph and answer the question. Paragraph: My name is Richard YUAN. Question: What is my name? Answer:"
             }
         }
 class no_stream_output(BaseModel):
@@ -40,14 +34,14 @@ class no_stream_output(BaseModel):
     class Config:
         schema_extra = {
             "example":{
-                "response": ["<<SYS>> You are an assisante. Please answer the questions in less than 512 words <</SYS>> [INST] Who are you? [/INST] Hello! I'm just an AI assistant, here to help"],
+                "response": "Hello! I'm just an AI assistant, here to help",
                 "status": "success",
-                "running_time": 0.154534
+                "running_time": 0.5125435
             }
         }
 
 
-@app.post("/generate", summary="Streaming accelerate vllm LLAMA 7B", response_description="Streaming Output is a series of the template result.", response_model=no_stream_output)
+@app.post("/generate", summary="Accelerate vllm LLAMA 7B", response_description="Generate output.", response_model=no_stream_output)
 async def generate(item: Request_1, request: Request) -> Response:
 # =Body(example={
 #                 "prompt": "<<SYS>> You are an assisante. Please answer the questions in less than 512 words <</SYS>> [INST] Who are you? [/INST]",
@@ -57,7 +51,6 @@ async def generate(item: Request_1, request: Request) -> Response:
 
     The request should be a JSON object with the following fields:
     - prompt: the prompt to use for the generation.
-    - stream: whether to stream the results or not.
     - other fields: the sampling parameters (See `SamplingParams` for details).
     -- eg. "max_tokens", "top_p", "top_k", etc
 
@@ -65,7 +58,8 @@ async def generate(item: Request_1, request: Request) -> Response:
     start = time.time()
     request_dict = await request.json()
     prompt = request_dict.pop("prompt")
-    stream = request_dict.pop("stream", True)
+    stream = False
+    request_dict['max_tokens'] = 512
     sampling_params = SamplingParams(**request_dict)
     request_id = random_uuid()
 
@@ -98,9 +92,9 @@ async def generate(item: Request_1, request: Request) -> Response:
 
     assert final_output is not None
     prompt = final_output.prompt
-    text_outputs = [output.text for output in final_output.outputs]
+    text_outputs = final_output.outputs[0].text
     # text_outputs = [prompt + output.text for output in final_output.outputs]
-    ret = {"response": text_outputs, "status": "success", "running_time": float(time.time() - start)}
+    ret = {"text": text_outputs, "status": 'success', "running_time": float(time.time() - start)}
     return JSONResponse(ret)
 
 
