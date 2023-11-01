@@ -14,6 +14,17 @@ from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.sampling_params import SamplingParams
 from vllm.utils import random_uuid
 
+import redis
+
+
+redis_pool = redis.ConnectionPool(
+    host='192.168.0.48',
+    port=3379,
+    password='vitonguE@1@1',
+    db=0,
+    decode_responses=True)
+
+redis_conn = redis.Redis(connection_pool=redis_pool)
 
 
 TIMEOUT_KEEP_ALIVE = 5  # seconds.
@@ -22,18 +33,16 @@ app = FastAPI()
 engine = None
 
 class Request_1(BaseModel):
-    prompt: str
-    stream: bool
+    chat_input: str
+    id: str
+    msg_id: str
     
     class Config:
         schema_extra = {
             "example":{
-                "prompt": "<<SYS>> You are an assisante. Please answer the questions in less than 512 words <</SYS>> [INST] Who are you? [/INST]",
-                "stream": False,
-                "max_tokens": 512,
-                "top_p": 0.9,
-                "frequency_penalty": 0.0,
-                "use_beam_search": False
+                "chat_input": "Who are you?",
+                "id":"1c7ecc18-9f04-4261-a566-c47dfeda25f5",
+                "msg_id":"a91b38487b174b9d8c3fc34e39f767a0",
             }
         }
 class no_stream_output(BaseModel):
@@ -65,11 +74,18 @@ async def generate(item: Request_1, request: Request) -> Response:
     """
     start = time.time()
     request_dict = await request.json()
-    prompt = request_dict.pop("prompt")
+    prompt = request_dict.pop("chat_input")
     stream = request_dict.pop("stream", True)
+    msgId = request_dict.pop("msg_id")
+    chatId = request_dict.pop("id")
+
+    # Add parameters
+    if 'max_tokens' not in request_dict:
+        request_dict['max_tokens'] = 512
+    if 'top_p' not in request_dict:
+        request_dict['top_p'] = 0.9
     sampling_params = SamplingParams(**request_dict)
     request_id = random_uuid()
-
     results_generator = engine.generate(prompt, sampling_params, request_id)
 
     # Streaming case
@@ -79,14 +95,32 @@ async def generate(item: Request_1, request: Request) -> Response:
             # text_outputs = [
             #     prompt + output.text for output in request_output.outputs
             # ]
-            text_outputs = [
-                output.text for output in request_output.outputs
-            ]
+            # text_outputs = [
+            #     output.text for output in request_output.outputs
+            # ]
+            if len(request_output.outputs[-1].token_ids) == 1:
+                text_outputs = request_output.outputs[-1].text
+                last_text = request_output.outputs[-1].text
+            else:
+                tmp_text_outputs = request_output.outputs[-1].text
+                text_outputs = tmp_text_outputs.replace(last_text, '')
+                last_text = tmp_text_outputs
+            print(f"text_output: {text_outputs}")
             ret = {"text": text_outputs}
-            yield (json.dumps(ret) + "\0").encode("utf-8")
+            message1 = {"chatId": chatId,"msgId": msgId, "response": text_outputs}
+            stream_name = f"momrah:sse:chat:{msgId}"
+            message1_id = redis_conn.xadd(stream_name, message1)
+        
+        # Add final signal
+        final_message = {"chatId": chatId,"msgId": msgId, "response": "[\FINAL\]"}
+        stream_name = f"momrah:sse:chat:{msgId}"
+        message1_id = redis_conn.xadd(stream_name, final_message)
 
     if stream:
-        return StreamingResponse(stream_results())
+        await stream_results()
+        return Response(status_code=200)
+    
+    
 
     # Non-streaming case
     final_output = None
