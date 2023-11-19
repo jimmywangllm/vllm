@@ -1,3 +1,12 @@
+import os
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["TRANSFORMERS_CACHE"] = "/data/hugging_face_model/"
+os.environ["TORCH_HOME"] = "/data/hugging_face_model/"
+os.environ["HUGGINGFACE_TOKEN"] = "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"
+os.environ["HF_HOME"] = "/data/.cache/huggingface"
+os.environ["HUGGINGFACE_HUB_CACHE"] = "/data/.cache/huggingface/hub"
+
 import argparse
 import json
 from typing import AsyncGenerator
